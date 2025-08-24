@@ -22,7 +22,7 @@ step_rst.value(0)      # RST: LOW로 초기화
 utime.sleep_ms(10)
 
 # 회전 함수
-def step_rotate(direction='left', degrees=30):
+def step_rotate(direction='left', degrees=20):
     global rotate_pos
 
     # 1 step = 0.036 degrees (with 1:50 gear), 여기에 실제 회전 각도 보정을 위해 ×2
