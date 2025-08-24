@@ -132,8 +132,16 @@ app_motor_direction = 'forward' # Actual direction of the motor in app mode
 current_speed = 63000    # Initial speed is stopped
 
 STOP_SPEED = 63000
-MAX_SPEED = 10000
+# MAX_SPEED is now dynamic, see below
 RAMP_STEP = 1500 # Speed change per loop iteration for acceleration
+
+# DC Motor Speed Control
+# Levels correspond to 40%, 60%, 80%, 100% of max speed
+# Lower value = higher speed
+DC_MOTOR_SPEED_LEVELS = [41800, 31200, 20600, 10000]
+dc_motor_speed_level_index = 3 # Start at 100% (index 3)
+MAX_SPEED = DC_MOTOR_SPEED_LEVELS[dc_motor_speed_level_index]
+
 
 # Stepper Motor State
 rotate_pos = 10
@@ -182,7 +190,7 @@ def step_rotate(direction='left', degrees=13):
 
 # ========== Bluetooth RX Callback for Mode and Command Switching ==========
 def on_rx(data):
-    global control_mode, app_command, current_speed
+    global control_mode, app_command, current_speed, dc_motor_speed_level_index, MAX_SPEED
     command = data.decode().strip()
     print(f"Received command: '{command}'")
 
@@ -219,6 +227,20 @@ def on_rx(data):
         elif command == 'd':
             print("App command: Steer Right")
             step_rotate(direction='right', degrees=13)
+        elif command == 'o': # Decrease max speed
+            if dc_motor_speed_level_index > 0:
+                dc_motor_speed_level_index -= 1
+                MAX_SPEED = DC_MOTOR_SPEED_LEVELS[dc_motor_speed_level_index]
+                level_percent = ((dc_motor_speed_level_index * 2) + 4) * 10
+                print(f"Max speed decreased to {level_percent}%")
+                sp.send(f"Max speed: {level_percent}%".encode())
+        elif command == 'p': # Increase max speed
+            if dc_motor_speed_level_index < len(DC_MOTOR_SPEED_LEVELS) - 1:
+                dc_motor_speed_level_index += 1
+                MAX_SPEED = DC_MOTOR_SPEED_LEVELS[dc_motor_speed_level_index]
+                level_percent = ((dc_motor_speed_level_index * 2) + 4) * 10
+                print(f"Max speed increased to {level_percent}%")
+                sp.send(f"Max speed: {level_percent}%".encode()) 
 
 # ========== Initialization ==========
 ble = bluetooth.BLE()
