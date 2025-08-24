@@ -1,81 +1,65 @@
-from machine import Pin, PWM, ADC
+from machine import Pin
 import utime
 
-# DC모터 핀 설정
-motor_dir = Pin(21, Pin.OUT)  # CW/CCW
-motor_sd1 = Pin(20, Pin.OUT)
-motor_sd2 = Pin(19, Pin.OUT)
-motor_pwm = PWM(Pin(18))
-motor_pwm.freq(1000)
+# 핀 설정
+step_en = Pin(10, Pin.OUT)   # Enable
+step_rst = Pin(11, Pin.OUT)  # Reset
+step_dir = Pin(12, Pin.OUT)  # Direction
+step_pul = Pin(13, Pin.OUT)  # Step
 
-# 엑셀 (ADC)
-accel = ADC(Pin(28))
+# 회전 위치 추적 변수
+rotate_pos = 10
+rotate_mid = 10
+rotate_left_limit = 0
+rotate_right_limit = 20
 
-# 전후진 스위치
-fwd_rev_switch = Pin(1, Pin.IN, Pin.PULL_UP)
+# 스텝 수 설정
+STEPS_PER_REV = 400  # 점퍼 off-on-off (200pulse/rev) 기준, 2회전
 
-# 초기 설정
-step_en.value(0)
-step_rst.value(0)
+# 초기화: 전원 투입 시
+step_en.value(0)       # EN: LOW로 초기화 (비활성)
+step_rst.value(0)      # RST: LOW로 초기화
 utime.sleep_ms(10)
-step_rst.value(1)
 
-motor_sd1.value(1)
-motor_sd2.value(1)
+# 회전 함수
+def step_rotate(direction='left', degrees=25):
+    global rotate_pos
 
-# 스텝모터 회전 함수
-def step_rotate(direction='left', steps=100, speed_us=500):
-    step_en.value(1)
-    step_dir.value(0 if direction == 'left' else 1)
+    # 1 step = 0.036 degrees (with 1:50 gear), 여기에 실제 회전 각도 보정을 위해 ×2
+    steps = int(degrees / 0.036 * 2)
+
+    if direction == 'left':
+        if rotate_pos <= rotate_left_limit:
+            rotate_pos = rotate_left_limit
+            return
+        step_dir.value(0)
+        rotate_pos -= 1
+    elif direction == 'right':
+        if rotate_pos >= rotate_right_limit:
+            rotate_pos = rotate_right_limit
+            return
+        step_dir.value(1)
+        rotate_pos += 1
+
+    step_en.value(1)  # Enable
+
     for _ in range(steps):
         step_pul.value(1)
-        utime.sleep_us(speed_us)
+        utime.sleep_us(500)
         step_pul.value(0)
-        utime.sleep_us(speed_us)
+        utime.sleep_us(500)
+
     step_en.value(0)
+    print("rotate_pos:", rotate_pos, "degrees rotated:", degrees)
 
-# DC모터 제어 함수
-def drive_motor(speed_val, direction='forward'):
-    # speed_val 값을 PWM 값으로 직접 사용
-    motor_dir.value(1 if direction == 'forward' else 0)  # HIGH: forward, LOW: backward
-    motor_pwm.duty_u16(speed_val)
 
-# 메인 루프
+
+# 테스트 루프: 왼쪽 1회, 오른쪽 1회 반복
 while True:
-    accel_val = accel.read_u16()
+    print("LEFT")
+    step_rotate('left')
+    utime.sleep(1)
 
-    # --- 사용자 정의 엑셀 매핑 ---
-    # 입력 (accel_val): 18500 ~ 65500
-    # 출력 (speed): 10000 (최고 속도) ~ 63000 (정지)
-    in_min = 18500
-    in_max = 65500
-    out_max_speed = 10000
-    out_min_speed = 63000
-
-    # 입력 값을 유효 범위(in_min ~ in_max) 내로 고정(clamp)
-    if accel_val < in_min:
-        accel_val = in_min
-    elif accel_val > in_max:
-        accel_val = in_max
-
-    # 역방향 선형 매핑
-    # 이제 accel_val은 항상 유효 범위 안에 있으므로 직접 공식 적용
-    speed = out_min_speed - ((accel_val - in_min) * (out_min_speed - out_max_speed)) // (in_max - in_min)
-
-    # 모터 드라이버는 항상 활성화 상태를 유지합니다. (셧다운 기능 비활성화)
-
-    # 전후진 스위치 판독
-    fwd_rev = fwd_rev_switch.value()
-    direction = 'forward' if fwd_rev == 1 else 'backward'
-
-    # 모터 회전 (변환된 speed 값 사용)
-    drive_motor(speed, direction)
-
-    # 출력 상태 확인 (스위치 입력 기준)
-    direction_str = 'forward' if fwd_rev == 1 else 'backward' 
-
-    print("Accel:", accel_val,
-          "Speed:", speed,
-          "Direction (switch GPIO2):", direction_str)
-
-    utime.sleep(0.1)
+    print("RIGHT")
+    step_rotate('right')
+    utime.sleep(1)
