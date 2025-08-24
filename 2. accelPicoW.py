@@ -2,12 +2,6 @@
 from machine import Pin, PWM, ADC
 import utime
 
-# 스텝모터 핀 설정
-step_en = Pin(10, Pin.OUT)
-step_rst = Pin(11, Pin.OUT)
-step_dir = Pin(12, Pin.OUT)
-step_pul = Pin(13, Pin.OUT)
-
 # DC모터 핀 설정
 motor_dir = Pin(21, Pin.OUT)  # CW/CCW
 motor_sd1 = Pin(20, Pin.OUT)
@@ -22,24 +16,8 @@ accel = ADC(Pin(28))
 fwd_rev_switch = Pin(1, Pin.IN, Pin.PULL_UP)
 
 # 초기 설정
-step_en.value(0)
-step_rst.value(0)
-utime.sleep_ms(10)
-step_rst.value(1)
-
 motor_sd1.value(1)
 motor_sd2.value(1)
-
-# 스텝모터 회전 함수
-def step_rotate(direction='left', steps=100, speed_us=500):
-    step_en.value(1)
-    step_dir.value(0 if direction == 'left' else 1)
-    for _ in range(steps):
-        step_pul.value(1)
-        utime.sleep_us(speed_us)
-        step_pul.value(0)
-        utime.sleep_us(speed_us)
-    step_en.value(0)
 
 # DC모터 제어 함수
 def drive_motor(speed_val, direction='forward'):
