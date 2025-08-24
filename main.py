@@ -114,6 +114,17 @@ fwd_rev_switch = Pin(1, Pin.IN, Pin.PULL_UP)
 motor_sd1.value(1)
 motor_sd2.value(1)
 
+# Stepper Motor Pins
+step_en = Pin(10, Pin.OUT)
+step_rst = Pin(11, Pin.OUT)
+step_dir = Pin(12, Pin.OUT)
+step_pul = Pin(13, Pin.OUT)
+
+# Stepper Motor Init
+step_en.value(0)
+step_rst.value(0)
+utime.sleep_ms(10)
+
 # ========== Global State and Constants ==========
 control_mode = 'manual'  # 'manual' or 'app'
 app_command = 'stop'     # App mode command: 'stop', 'forward', 'backward'
@@ -124,10 +135,50 @@ STOP_SPEED = 63000
 MAX_SPEED = 10000
 RAMP_STEP = 1500 # Speed change per loop iteration for acceleration
 
+# Stepper Motor State
+rotate_pos = 10
+rotate_mid = 10
+rotate_left_limit = 0
+rotate_right_limit = 20
+STEPS_PER_REV = 400
+
 # ========== Motor Control Function ==========
 def drive_motor(speed_val, direction='forward'):
     motor_dir.value(1 if direction == 'forward' else 0)
     motor_pwm.duty_u16(speed_val)
+
+# ========== Stepper Motor Control Function ==========
+def step_rotate(direction='left', degrees=13):
+    global rotate_pos
+
+    # 1 step = 0.036 degrees (with 1:50 gear), 여기에 실제 회전 각도 보정을 위해 ×2
+    steps = int(degrees / 0.036 * 2)
+
+    if direction == 'left':
+        if rotate_pos <= rotate_left_limit:
+            rotate_pos = rotate_left_limit
+            print("Steering at left limit.")
+            return
+        step_dir.value(1) # Swapped to fix reversed direction
+        rotate_pos -= 1
+    elif direction == 'right':
+        if rotate_pos >= rotate_right_limit:
+            rotate_pos = rotate_right_limit
+            print("Steering at right limit.")
+            return
+        step_dir.value(0) # Swapped to fix reversed direction
+        rotate_pos += 1
+
+    step_en.value(1)  # Enable
+
+    for _ in range(steps):
+        step_pul.value(1)
+        utime.sleep_us(500)
+        step_pul.value(0)
+        utime.sleep_us(500)
+
+    step_en.value(0)
+    print("rotate_pos:", rotate_pos, "degrees rotated:", degrees)
 
 # ========== Bluetooth RX Callback for Mode and Command Switching ==========
 def on_rx(data):
@@ -162,6 +213,12 @@ def on_rx(data):
         elif command == 's':
             app_command = 'stop'
             print("App command: STOP")
+        elif command == 'a':
+            print("App command: Steer Left")
+            step_rotate(direction='left', degrees=13)
+        elif command == 'd':
+            print("App command: Steer Right")
+            step_rotate(direction='right', degrees=13)
 
 # ========== Initialization ==========
 ble = bluetooth.BLE()
@@ -199,8 +256,7 @@ while True:
 
     elif control_mode == 'app':
         # Determine if a direction reversal is commanded
-        is_reversing = (app_command == 'forward' and app_motor_direction == 'backward') or \
-                       (app_command == 'backward' and app_motor_direction == 'forward')
+        is_reversing = (app_command == 'forward' and app_motor_direction == 'backward') or                        (app_command == 'backward' and app_motor_direction == 'forward')
 
         # If a direction change is commanded while the motor is moving, stop first.
         if is_reversing and current_speed < STOP_SPEED:
