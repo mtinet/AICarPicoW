@@ -1,12 +1,5 @@
-
 from machine import Pin, PWM, ADC
 import utime
-
-# 스텝모터 핀 설정
-step_en = Pin(10, Pin.OUT)
-step_rst = Pin(11, Pin.OUT)
-step_dir = Pin(12, Pin.OUT)
-step_pul = Pin(13, Pin.OUT)
 
 # DC모터 핀 설정
 motor_dir = Pin(21, Pin.OUT)  # CW/CCW
