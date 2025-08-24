@@ -114,32 +114,54 @@ fwd_rev_switch = Pin(1, Pin.IN, Pin.PULL_UP)
 motor_sd1.value(1)
 motor_sd2.value(1)
 
-# ========== Global State ==========
+# ========== Global State and Constants ==========
 control_mode = 'manual'  # 'manual' or 'app'
-STOP_SPEED = 63000 # Speed value to stop the motor
+app_command = 'stop'     # App mode command: 'stop', 'forward', 'backward'
+app_motor_direction = 'forward' # Actual direction of the motor in app mode
+current_speed = 63000    # Initial speed is stopped
+
+STOP_SPEED = 63000
+MAX_SPEED = 10000
+RAMP_STEP = 1500 # Speed change per loop iteration for acceleration
 
 # ========== Motor Control Function ==========
 def drive_motor(speed_val, direction='forward'):
     motor_dir.value(1 if direction == 'forward' else 0)
     motor_pwm.duty_u16(speed_val)
 
-# ========== Bluetooth RX Callback for Mode Switching ==========
+# ========== Bluetooth RX Callback for Mode and Command Switching ==========
 def on_rx(data):
-    global control_mode
+    global control_mode, app_command, current_speed
     command = data.decode().strip()
-    print(f"Received command: {command}")
+    print(f"Received command: '{command}'")
 
+    # Mode switching commands
     if command == 'i':
         if control_mode != 'app':
             control_mode = 'app'
+            app_command = 'stop'
+            current_speed = STOP_SPEED
+            drive_motor(current_speed) # Stop motor on mode change
             print("Switching to App Control Mode.")
-            drive_motor(STOP_SPEED) # Stop motor on mode change
             sp.send(b"Switched to App Mode")
     elif command == 'm':
         if control_mode != 'manual':
             control_mode = 'manual'
+            drive_motor(STOP_SPEED) # Stop motor before switching
             print("Switching to Manual Mode.")
             sp.send(b"Switched to Manual Mode")
+    
+    # App mode motor commands
+    elif control_mode == 'app':
+        if command == 'w':
+            app_command = 'forward'
+            print("App command: FORWARD")
+        elif command == 'x':
+            app_command = 'backward'
+            print("App command: BACKWARD")
+        elif command == 's':
+            app_command = 'stop'
+            print("App command: STOP")
 
 # ========== Initialization ==========
 ble = bluetooth.BLE()
@@ -154,38 +176,56 @@ while True:
         accel_val = accel.read_u16()
 
         # --- Accelerator Mapping ---
-        # Input (accel_val): 18500 ~ 65500
-        # Output (speed): 10000 (max speed) ~ 63000 (stop)
         in_min = 18500
         in_max = 65500
-        out_max_speed = 10000
-        out_min_speed = STOP_SPEED
-
-        # Clamp input value to the valid range
+        
+        # Clamp input value
         if accel_val < in_min:
             accel_val = in_min
         elif accel_val > in_max:
             accel_val = in_max
 
         # Linear inverse mapping
-        speed = out_min_speed - ((accel_val - in_min) * (out_min_speed - out_max_speed)) // (in_max - in_min)
+        speed = STOP_SPEED - ((accel_val - in_min) * (STOP_SPEED - MAX_SPEED)) // (in_max - in_min)
 
         # Read forward/reverse switch
         fwd_rev = fwd_rev_switch.value()
         direction = 'forward' if fwd_rev == 1 else 'backward'
 
-        # Drive the motor
         drive_motor(speed, direction)
-
-        # Print status for monitoring
+        
         direction_str = 'forward' if fwd_rev == 1 else 'backward'
         print(f"Mode: Manual | Accel: {accel_val}, Speed: {speed}, Direction: {direction_str}")
 
     elif control_mode == 'app':
-        # In app mode, the motor is stopped upon switching.
-        # It will wait here for further commands via Bluetooth.
-        # (Future code for app control will be added here)
-        print("Mode: App Control | Waiting for commands...")
-        pass
+        # Determine if a direction reversal is commanded
+        is_reversing = (app_command == 'forward' and app_motor_direction == 'backward') or \
+                       (app_command == 'backward' and app_motor_direction == 'forward')
 
-    utime.sleep(0.2)
+        # If a direction change is commanded while the motor is moving, stop first.
+        if is_reversing and current_speed < STOP_SPEED:
+            # Ramp up speed value to decelerate to a stop
+            current_speed = min(STOP_SPEED, current_speed + RAMP_STEP)
+            
+            # Once stopped, update the motor's direction to the new target
+            if current_speed >= STOP_SPEED:
+                app_motor_direction = 'forward' if app_command == 'forward' else 'backward'
+        else:
+            # No direction change, or we are already stopped. Proceed with command.
+            if app_command == 'forward':
+                app_motor_direction = 'forward'
+                if current_speed > MAX_SPEED:
+                    current_speed = max(MAX_SPEED, current_speed - RAMP_STEP)
+            
+            elif app_command == 'backward':
+                app_motor_direction = 'backward'
+                if current_speed > MAX_SPEED:
+                    current_speed = max(MAX_SPEED, current_speed - RAMP_STEP)
+
+            elif app_command == 'stop':
+                current_speed = STOP_SPEED
+
+        drive_motor(current_speed, app_motor_direction)
+        print(f"Mode: App | Cmd: {app_command} | Speed: {current_speed} | Dir: {app_motor_direction}")
+
+    utime.sleep(0.1)
